@@ -1,0 +1,127 @@
+---
+title: "Practical Machine Learning Project"
+author: Aranda, Joey Ohmar I.
+date: November 29, 2018
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+##Objective
+The goal of the exercise is to predict the manner the people exercise given the data from wearable devices. Various prediction models thought to be appropriate in predicting the outcome "classe" were used. Comparisons were made based on their prediction performance.
+
+##Libraries Used
+library(caret)\
+library(rattle)
+```{r,echo=FALSE}
+library(caret)
+library(rattle)
+```
+
+##Getting started
+```{r,echo=TRUE}
+set.seed(1357)
+```
+
+```{r,echo=TRUE}
+#Data Cleaning
+trainingurl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingurl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+traindata<-read.csv(url(trainingurl),na.strings = c("NA","","#DIV/0!"))
+testdata<-read.csv(url(testingurl),na.strings = c("NA","","#DIV/0!"))
+dim(traindata)
+dim(testdata)
+
+traindatana<-which(colSums(is.na(traindata))>0.8*dim(traindata)[1])
+cleantraindata<-traindata[,-traindatana]
+cleantraindata<-cleantraindata[,-c(1:7)]
+dim(cleantraindata)
+
+testdatana<-which(colSums(is.na(testdata))>0.8*dim(testdata)[1])
+cleantestdata<-testdata[,-testdatana]
+cleantestdata<-cleantestdata[,-c(1:7)]
+dim(cleantestdata)
+```
+The data provided consist of different values that can affect the performance of model building and prediction. "NA","", and "#DIV/0!" were treated as NA values and the goal is to minimize the number of NAs in the dataset. For the purposes of this exercise, features that contain NAs greater than 80% of the number of rows of train/test data were filtered out. The first seven variables were also filtered out as these are the identifiers of the people that took the test and timestamps - information that do not tell anything about the activities performed.
+
+Originally, the train and test data have 160 variables. After data cleaning, it was reduced to 53. The 53 variables will be used as predictors.
+
+```{r,echo=TRUE}
+#Data Partition
+inTrain<- createDataPartition(cleantraindata$classe, p = 3/4)[[1]]
+cleantrainpart<- cleantraindata[inTrain,]
+cleantestpart<-cleantraindata[-inTrain,]
+```
+The cleaned training data was partitioned to create another set of training and testing data. This is significant in model fitting so as not to saturate the model with the same values all throughtout the process. This will also help in calibrating the model for more accurate prediction of isolated data.
+
+##Model Building
+In model building, three variants of tree classifier methods were used: 1.) rpart which is the most basic decision tree method among the three 2.) rf (random forest) which involves bootstrapping and decision trees for prediction purposes and 3.) gbm (gradient boosting) uses regression trees for prediction.\
+
+Cross-validation was also done to aid in detecting relevant features. 5-fold cross validation was used as this is seen sufficient for training. Smaller number of folds will also help minimize runtime.
+
+###Tree Classifier
+```{r,results="hide"}
+start_time<-Sys.time()
+modeltree<-train(classe ~.,data=cleantrainpart,method="rpart",trControl=trainControl(method="cv",number=5))
+modtreepred<-predict(modeltree,cleantestpart)
+confmattree<-confusionMatrix(modtreepred,cleantestpart$classe)
+end_time<-Sys.time() 
+```
+
+```{r}
+end_time-start_time #rpart run time
+fancyRpartPlot(modeltree$finalModel)
+print(modeltree)
+confmattree$table
+confmattree$overall[1]
+```
+Classic decision tree methods start with all variables in one group then find the variable that best separates the outcome. The process ends when the groups are too small or "pure". The hierarchical nature of methods like rpart aids in interpretability. The drawback is that it does not perform particularly well considering the overall accuracy displayed above. With this, we can try other methods and see their performances.
+
+###Random Forest
+```{r,results="hide"}
+start_time<-Sys.time()
+modelrf<-train(classe ~ .,data=cleantrainpart,method="rf",trControl=trainControl(method="cv",number=5))
+modrfpred<-predict(modelrf,cleantestpart)
+confmatrf<-confusionMatrix(modrfpred,cleantestpart$classe)
+end_time<-Sys.time() 
+```
+
+```{r}
+end_time-start_time #rf run time
+print(modelrf)
+confmatrf$table
+confmatrf$overall[1]
+plot(modelrf, main="Number of Predictors vs Accuracy")
+varImp(modelrf)
+```
+Random forest is an ensemble learning method that can be used for classification and regression problems. It can be thought of as a more complicated version of typical decision tree algorithms because it performs bootstrapping for training and testing before the creation of decision trees for prediction. Compared with rpart, rf method is seen as a much better algorithm given the accuracy. A plot was also given to show the relationship between the predictors and accuracy. This plot is useful in understanding the concept of bias-variance tradeoff. It doesn't hold that the more predictors used, the better. Various predictors are correlated with one another, rendering them redundant in certain cases. 
+
+###Gradient Boosting
+```{r,results="hide"}
+start_time<-Sys.time()
+modelgbm<-train(classe ~.,data=cleantrainpart,method="gbm",trControl=trainControl(method="cv",number=5))
+modgbmpred<-predict(modelgbm,cleantestpart)
+confmatgbm<-confusionMatrix(modgbmpred,cleantestpart$classe)
+end_time<-Sys.time()
+```
+
+```{r}
+end_time-start_time #gbm run time
+print(modelgbm)
+plot(modelgbm,ylim=c(0.7,1.0))
+confmatgbm$table
+confmatgbm$overall[1]
+```
+Lastly, gbm (gradient boosting) was used. Boosting is a method that takes advantage of lots of weak predictors then weight and add them up to get a stronger predictor. Given the accuracy it produced, it is quite a good method.\
+
+##Prediction on Test Data
+Among the three methods, random forest provided the highest accuracy which makes this appropriate to be used in predicting the classes in the test dataset.
+
+```{r}
+bestmodrf<-predict(modelrf,newdata = cleantestdata)
+bestmodrf
+```
+
+##Conclusion
+Practical machine learning methods vary in uses depending on what to predict. There is no one method that can be used to solve all types of problems. Utilization of methods depend on one's need. One may be more inclined to use simpler methods for their interpretability while some may prefer complex or "blackbox" methods because they feel these are more robust. The performance of the methods used in this exercise were shown through their accuracy in prediction and process run time.
